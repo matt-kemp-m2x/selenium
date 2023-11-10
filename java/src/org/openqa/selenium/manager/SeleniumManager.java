@@ -20,10 +20,10 @@ import static org.openqa.selenium.Platform.MAC;
 import static org.openqa.selenium.Platform.WINDOWS;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -183,11 +183,11 @@ public class SeleniumManager {
         binary = getBinaryInCache(SELENIUM_MANAGER + extension);
         if (!binary.toFile().exists()) {
           String binaryPathInJar = String.format("%s/%s%s", folder, SELENIUM_MANAGER, extension);
-          try (InputStream inputStream = this.getClass().getResourceAsStream(binaryPathInJar)) {
-            binary.getParent().toFile().mkdirs();
-            Files.copy(inputStream, binary);
-          }
-          binary.toFile().setExecutable(true);
+          binary.getParent().toFile().mkdirs();
+          Files.copy(
+              Paths.get(this.getClass().getResource(binaryPathInJar).toURI()),
+              binary,
+              StandardCopyOption.COPY_ATTRIBUTES);
         }
 
       } catch (Exception e) {
