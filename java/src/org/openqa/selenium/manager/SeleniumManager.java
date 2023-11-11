@@ -20,6 +20,9 @@ import static org.openqa.selenium.Platform.MAC;
 import static org.openqa.selenium.Platform.WINDOWS;
 
 import java.io.IOException;
+import java.net.URI;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -183,13 +186,14 @@ public class SeleniumManager {
         binary = getBinaryInCache(SELENIUM_MANAGER + extension);
         if (!binary.toFile().exists()) {
           String binaryPathInJar = String.format("%s/%s%s", folder, SELENIUM_MANAGER, extension);
+          String[] inJar = this.getClass().getResource(binaryPathInJar).toString().split("!", 2);
           binary.getParent().toFile().mkdirs();
-          Files.copy(
-              Paths.get(this.getClass().getResource(binaryPathInJar).toURI()),
-              binary,
-              StandardCopyOption.COPY_ATTRIBUTES);
+          try (FileSystem fileSystem = FileSystems.newFileSystem(URI.create(inJar[0]), Map.of())) {
+            // use copy with attributes to get the executable flag set on file creation.
+            // otherwise it will take some time to get the executable flag effective.
+            Files.copy(fileSystem.getPath(inJar[1]), binary, StandardCopyOption.COPY_ATTRIBUTES);
+          }
         }
-
       } catch (Exception e) {
         throw new WebDriverException("Unable to obtain Selenium Manager Binary", e);
       }
