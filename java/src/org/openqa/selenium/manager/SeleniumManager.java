@@ -20,18 +20,22 @@ import static org.openqa.selenium.Platform.MAC;
 import static org.openqa.selenium.Platform.WINDOWS;
 
 import java.io.IOException;
-import java.net.URI;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.openqa.selenium.Beta;
@@ -186,13 +190,42 @@ public class SeleniumManager {
         binary = getBinaryInCache(SELENIUM_MANAGER + extension);
         if (!binary.toFile().exists()) {
           String binaryPathInJar = String.format("%s/%s%s", folder, SELENIUM_MANAGER, extension);
-          String[] inJar = this.getClass().getResource(binaryPathInJar).toString().split("!", 2);
           binary.getParent().toFile().mkdirs();
-          try (FileSystem fileSystem = FileSystems.newFileSystem(URI.create(inJar[0]), Map.of())) {
-            // use copy with attributes to get the executable flag set on file creation.
-            // otherwise it will take some time to get the executable flag effective.
-            Files.copy(fileSystem.getPath(inJar[1]), binary, StandardCopyOption.COPY_ATTRIBUTES);
+          SeekableByteChannel channel;
+
+          // SYNC to ensure data and metadata are written, to avoid issues when executing the file
+          // instantly after
+          var options =
+              Set.of(
+                  StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, StandardOpenOption.SYNC);
+
+          try {
+            if (binary.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+              var executable =
+                  PosixFilePermissions.asFileAttribute(
+                      PosixFilePermissions.fromString("rwxrwx---"));
+
+              channel = Files.newByteChannel(binary, options, executable);
+            } else {
+              channel = Files.newByteChannel(binary, options);
+            }
+          } catch (FileAlreadyExistsException e) {
+            LOG.fine(
+                String.format(
+                    "Selenium Manager binary created by a different process at: %s", binary));
+            Thread.sleep(2000); // ensure the other process has some time to finish writing
+            return binary;
           }
+
+          try (OutputStream output = Channels.newOutputStream(channel);
+              InputStream input = this.getClass().getResourceAsStream(binaryPathInJar)) {
+            input.transferTo(output);
+          }
+
+          LOG.fine(String.format("Selenium Manager binary created at: %s", binary));
+          return binary;
+        } else if (!binary.toFile().canExecute()) {
+          binary.toFile().setExecutable(true);
         }
       } catch (Exception e) {
         throw new WebDriverException("Unable to obtain Selenium Manager Binary", e);
@@ -200,8 +233,6 @@ public class SeleniumManager {
     } else if (!Files.exists(binary)) {
       throw new WebDriverException(
           String.format("Unable to obtain Selenium Manager Binary at: %s", binary));
-    } else if (!binary.toFile().canExecute()) {
-      binary.toFile().setExecutable(true);
     }
     LOG.fine(String.format("Selenium Manager binary found at: %s", binary));
 
