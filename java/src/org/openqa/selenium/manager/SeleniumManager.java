@@ -19,6 +19,7 @@ package org.openqa.selenium.manager;
 import static org.openqa.selenium.Platform.MAC;
 import static org.openqa.selenium.Platform.WINDOWS;
 
+import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -194,7 +195,7 @@ public class SeleniumManager {
           SeekableByteChannel channel;
 
           // SYNC to ensure data and metadata are written, to avoid issues when executing the file
-          // instantly after
+          // instantly after writing it
           var options =
               Set.of(
                   StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, StandardOpenOption.SYNC);
@@ -217,7 +218,10 @@ public class SeleniumManager {
             return binary;
           }
 
-          try (OutputStream output = Channels.newOutputStream(channel);
+          // use a buffer to not synchronize small batches to the disk, otherwise the CI will hit a
+          // timeout
+          try (OutputStream output =
+                  new BufferedOutputStream(Channels.newOutputStream(channel), 4 * 1024 * 1024);
               InputStream input = this.getClass().getResourceAsStream(binaryPathInJar)) {
             input.transferTo(output);
           }
